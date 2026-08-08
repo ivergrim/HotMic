@@ -50,6 +50,15 @@ interface LiveEvent {
   payoffMissed: boolean;
 }
 
+/**
+ * A problem drains until it is resolved (doc 8.1) — it does not quietly pass on
+ * its own, or ignoring one would be cheaper than half-handling it. Both beats
+ * are capped at the same number of seconds past grace so they cost the same,
+ * which is what "same clock, same penalties" in doc 2.2 means. Ten seconds at
+ * 1.5-2/s is 15-20 points, so three badly handled events land a player on the
+ * threshold, exactly as doc 12.2 specifies.
+ */
+const DRAIN_CAP = 10;
 const PAYOFF_TIMEOUT = 14;
 const COUNT_IN = 2.2;
 
@@ -350,11 +359,14 @@ export class GigScreen implements GameScreen {
           break;
       }
 
-      // The problem passes on its own schedule, fixed or not.
-      if (
-        (l.phase === "setup" || l.phase === "resolved") &&
-        songTime >= l.firedAt + l.def.hold
-      ) {
+      // A handled problem passes on its authored schedule. An unhandled one
+      // stays — Rhonda does not wake up on her own — until a mercy cap, so one
+      // ignored event cannot eat the whole gig.
+      const endsAt =
+        l.phase === "resolved"
+          ? l.firedAt + l.def.hold
+          : l.firedAt + Math.max(l.def.hold, g + DRAIN_CAP);
+      if ((l.phase === "setup" || l.phase === "resolved") && songTime >= endsAt) {
         const wasResolved = l.phase === "resolved";
         this.endProblem(app, l);
         if (wasResolved) {
